@@ -1,11 +1,11 @@
 import collections
 import json
 import os
-import torch
 
 import evaluate
 import numpy as np
 import pandas as pd
+import torch
 from datasets import load_dataset
 from tqdm.auto import tqdm
 from transformers import (
@@ -14,9 +14,6 @@ from transformers import (
     Trainer,
     TrainingArguments,
 )
-
-
-import collections
 
 N_BEST = 20
 MAX_ANSWER_LENGTH = 30
@@ -80,9 +77,8 @@ def compute_metrics(start_logits, end_logits, features, examples):
 
 def main(config):
 
-    MAX_LENGTH = int(config['max_length'] * 0.75)
+    MAX_LENGTH = int(config["max_length"] * 0.75)
     STRIDE = 128 * (MAX_LENGTH // 512)
-
 
     def preprocess_training_examples(examples):
         questions = [q.strip() for q in examples["question"]]
@@ -174,7 +170,9 @@ def main(config):
     torch.cuda.empty_cache()
     model_name = config["model_name"]
     optimizer_type = config["optimizer"]
-    model_path = model_name.split("/")[-1].replace("-", "_") + "_QA_SQUAD_" + optimizer_type
+    model_path = (
+        model_name.split("/")[-1].replace("-", "_") + "_QA_SQUAD_" + optimizer_type
+    )
     BATCH_SIZE = config["batch_size"]
     NUM_EPOCHS = config["num_epochs"]
 
