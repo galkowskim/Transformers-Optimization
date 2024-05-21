@@ -1,5 +1,7 @@
 {
-    "model_name": "allenai/longformer-base-4096",
-    "batch_size": 64,
-    "num_epochs": 5
+    "model_name": "FacebookAI/roberta-base",
+    "batch_size": 8,
+    "num_epochs": 5,
+    "max_length": 4096,
+    "optimizer": "adafactor"
 }

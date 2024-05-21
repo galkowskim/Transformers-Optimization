@@ -18,12 +18,8 @@ from transformers import (
 
 import collections
 
-MAX_LENGTH = 384
-STRIDE = 128
-
 N_BEST = 20
 MAX_ANSWER_LENGTH = 30
-
 
 metric = evaluate.load("squad")
 
@@ -83,6 +79,11 @@ def compute_metrics(start_logits, end_logits, features, examples):
 
 
 def main(config):
+
+    MAX_LENGTH = int(config['max_length'] * 0.75)
+    STRIDE = 128 * (MAX_LENGTH // 512)
+
+
     def preprocess_training_examples(examples):
         questions = [q.strip() for q in examples["question"]]
         inputs = tokenizer(
@@ -172,7 +173,8 @@ def main(config):
 
     torch.cuda.empty_cache()
     model_name = config["model_name"]
-    model_path = model_name.split("/")[-1].replace("-", "_") + "_QA_SQUAD"
+    optimizer_type = config["optimizer"]
+    model_path = model_name.split("/")[-1].replace("-", "_") + "_QA_SQUAD_" + optimizer_type
     BATCH_SIZE = config["batch_size"]
     NUM_EPOCHS = config["num_epochs"]
 
@@ -199,11 +201,13 @@ def main(config):
     args = TrainingArguments(
         model_path,
         evaluation_strategy="no",
+        per_device_train_batch_size=BATCH_SIZE,
         save_strategy="epoch",
         learning_rate=2e-5,
         num_train_epochs=NUM_EPOCHS,
         weight_decay=0.01,
         fp16=True,
+        optim=optimizer_type,
         push_to_hub=True,
     )
 
