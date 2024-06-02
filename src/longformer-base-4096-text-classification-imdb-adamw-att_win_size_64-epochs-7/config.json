@@ -1,0 +1,1 @@
+{"model_name": "allenai/longformer-base-4096", "num_epochs": 7, "batch_size": 32, "lr": 2e-05, "optimizer": "adamw", "scheduler": "linear", "data_dir": "model_path_imdb", "attention_window_size": 64}
