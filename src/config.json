@@ -1,5 +1,0 @@
-{
-    "model_name": "allenai/longformer-base-4096",
-    "batch_size": 32,
-    "num_epochs": 1
-}
