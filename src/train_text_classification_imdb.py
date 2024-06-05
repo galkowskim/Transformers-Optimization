@@ -105,7 +105,9 @@ def main(args):
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     def preprocess_function(examples):
-        return tokenizer(examples["text"], truncation=True, max_length=MAX_LENGTH)
+        inputs = tokenizer(examples["text"], truncation=True, max_length=MAX_LENGTH)
+        inputs["global_attention_mask"] = [[0] * MAX_LENGTH for _ in range(len(inputs["input_ids"]))]
+        return inputs
 
     tokenized_train = new_train.map(preprocess_function, batched=True, remove_columns=['text'])
     tokenized_test = new_test.map(preprocess_function, batched=True, remove_columns=['text'])
