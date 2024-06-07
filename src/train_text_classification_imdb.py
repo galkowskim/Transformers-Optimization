@@ -21,6 +21,7 @@ from transformers import (
     TrainingArguments,
     logging,
 )
+from modified_self_attention import ModifiedSelfAttention
 
 logging.set_verbosity_error()
 
@@ -134,6 +135,9 @@ def main(args):
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
     model = AutoModelForSequenceClassification.from_config(cfg)
+
+    for i, layer in enumerate(model.longformer.encoder.layer):
+        layer.attention.self = ModifiedSelfAttention(cfg, layer_id=i)
 
     training_args = TrainingArguments(
         output_dir=output_dir,
