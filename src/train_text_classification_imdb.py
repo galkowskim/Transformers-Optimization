@@ -70,7 +70,12 @@ class CustomCallback(TrainerCallback):
 
 
 def main(args):
-    output_dir = f"longformer-base-4096-text-classification-imdb-{args.optimizer}-att_win_size_{args.attention_window_size}-epochs-{args.num_epochs}"
+    if args.model == 'longformer':
+        output_dir = f"longformer-base-512-text-classification-imdb-{args.optimizer}-att_win_size_{args.attention_window_size}-epochs-{args.num_epochs}"
+    elif args.model == 'roberta':
+        output_dir = f"roberta-base-text-classification-imdb-{args.optimizer}-epochs-{args.num_epochs}"
+    else:
+        raise ValueError(f"Unknown model: {args.model}")
 
     model_name = args.model_name
     BATCH_SIZE = args.batch_size
@@ -89,8 +94,8 @@ def main(args):
         df_0 = df[df['label'] == 0]
         df_1 = df[df['label'] == 1]
 
-        sample_0, _ = train_test_split(df_0, train_size=n_samples//2, stratify=df_0['label'])
-        sample_1, _ = train_test_split(df_1, train_size=n_samples//2, stratify=df_1['label'])
+        sample_0, _ = train_test_split(df_0, train_size=n_samples//2, stratify=df_0['label'], random_state=42)
+        sample_1, _ = train_test_split(df_1, train_size=n_samples//2, stratify=df_1['label'], random_state=42)
 
         sample = pd.concat([sample_0, sample_1])
         remaining = df.drop(sample.index)
@@ -125,8 +130,9 @@ def main(args):
     label2id = {v: k for k, v in id2label.items()}
 
     cfg = AutoConfig.from_pretrained(model_name)
-    cfg.attention_window = args.attention_window_size
-    cfg.max_position_embeddings = MAX_LENGTH + 2
+    if args.model == 'longformer':
+        cfg.attention_window = args.attention_window_size
+        cfg.max_position_embeddings = MAX_LENGTH + 2
     cfg.num_labels = 2
     cfg.id2label = id2label
     cfg.label2id = label2id
@@ -209,6 +215,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model_name", type=str, default="allenai/longformer-base-4096"
     )
+    parser.add_argument("--model", type=str, default='longformer')
     parser.add_argument("--num_epochs", type=int, default=7)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=2e-5)

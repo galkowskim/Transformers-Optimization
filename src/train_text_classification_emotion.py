@@ -69,7 +69,12 @@ class CustomCallback(TrainerCallback):
 
 
 def main(args):
-    output_dir = f"longformer-base-4096-text-classification-emotion-{args.optimizer}-att_win_size_{args.attention_window_size}"
+    if args.model == 'longformer':
+        output_dir = f"longformer-base-512-text-classification-emotion-{args.optimizer}-att_win_size_{args.attention_window_size}"
+    elif args.model == 'roberta':
+        output_dir = f"roberta-base-text-classification-emotion-{args.optimizer}-epochs-{args.num_epochs}-cpu"
+    else:
+        raise ValueError("Model not supported")
 
     model_name = args.model_name
     BATCH_SIZE = args.batch_size
@@ -110,8 +115,9 @@ def main(args):
     label2id = {v: k for k, v in id2label.items()}
 
     cfg = AutoConfig.from_pretrained(model_name)
-    cfg.attention_window = args.attention_window_size
-    cfg.max_position_embeddings = MAX_LENGTH + 2
+    if args.model == 'longformer':
+        cfg.attention_window = args.attention_window_size
+        cfg.max_position_embeddings = MAX_LENGTH + 2
     cfg.num_labels = 2
     cfg.id2label = id2label
     cfg.label2id = label2id
@@ -194,6 +200,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model_name", type=str, default="allenai/longformer-base-4096"
     )
+    parser.add_argument("--model", type=str, default='longformer')
     parser.add_argument("--num_epochs", type=int, default=7)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=2e-5)
