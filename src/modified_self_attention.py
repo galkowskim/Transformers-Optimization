@@ -39,6 +39,8 @@ class ModifiedSelfAttention(nn.Module):
         attention_mask=None,
         layer_head_mask=None,
         is_index_masked=None,
+        is_index_global_attn=None,
+        is_global_attn=None,
         output_attentions=False,
     ):
         """
