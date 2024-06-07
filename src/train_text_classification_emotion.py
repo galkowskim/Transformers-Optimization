@@ -91,7 +91,7 @@ def main(args):
 
     def preprocess_function(examples):
         inputs = tokenizer(examples["text"], truncation=True, max_length=MAX_LENGTH)
-        inputs["global_attention_mask"] = [[0] * MAX_LENGTH for _ in range(len(inputs["input_ids"]))]
+        inputs["global_attention_mask"] = [[0] * len(input_id) for input_id in inputs["input_ids"]]
         return inputs
 
     tokenized_train = train.map(preprocess_function, batched=True, remove_columns=['text'])
