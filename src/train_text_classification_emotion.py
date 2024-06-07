@@ -20,6 +20,7 @@ from transformers import (
     TrainingArguments,
     logging,
 )
+from modified_self_attention import ModifiedSelfAttention
 
 logging.set_verbosity_error()
 
@@ -90,9 +91,7 @@ def main(args):
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     def preprocess_function(examples):
-        inputs = tokenizer(examples["text"], truncation=True, max_length=MAX_LENGTH)
-        inputs["global_attention_mask"] = [[0] * len(input_id) for input_id in inputs["input_ids"]]
-        return inputs
+        return tokenizer(examples["text"], truncation=True, max_length=MAX_LENGTH)
 
     tokenized_train = train.map(preprocess_function, batched=True, remove_columns=['text'])
     tokenized_valid = valid.map(preprocess_function, batched=True, remove_columns=['text'])
@@ -121,6 +120,9 @@ def main(args):
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
     model = AutoModelForSequenceClassification.from_config(cfg)
+
+    for i, layer in enumerate(model.longformer.encoder.layer):
+        layer.attention.self = ModifiedSelfAttention(cfg, layer_id=i)
 
     training_args = TrainingArguments(
         output_dir=output_dir,
