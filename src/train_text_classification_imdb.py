@@ -8,9 +8,9 @@ import evaluate
 import numpy as np
 import pandas as pd
 import torch
-from sklearn.model_selection import train_test_split
-from datasets import load_dataset, Dataset, concatenate_datasets
+from datasets import Dataset, concatenate_datasets, load_dataset
 from pynvml import nvmlDeviceGetHandleByIndex, nvmlDeviceGetMemoryInfo, nvmlInit
+from sklearn.model_selection import train_test_split
 from transformers import (
     AutoConfig,
     AutoModelForSequenceClassification,
@@ -21,6 +21,8 @@ from transformers import (
     TrainingArguments,
     logging,
 )
+
+from custom_attention import ModifiedSelfAttention
 
 logging.set_verbosity_error()
 
@@ -70,10 +72,17 @@ class CustomCallback(TrainerCallback):
 
 
 def main(args):
-    if args.model == 'longformer':
-        output_dir = f"longformer-base-512-text-classification-imdb-{args.optimizer}-att_win_size_{args.attention_window_size}-epochs-{args.num_epochs}"
-    elif args.model == 'roberta':
-        output_dir = f"roberta-base-text-classification-imdb-{args.optimizer}-epochs-{args.num_epochs}"
+    if args.use_global == "true":
+        use_global = ""
+    elif args.use_global == "false":
+        use_global = "no_global_attention_"
+    else:
+        raise ValueError("use_global should be either true or false")
+
+    if args.model == "longformer":
+        output_dir = f"{use_global}longformer-base-512-text-classification-imdb-{args.optimizer}-att_win_size_{args.attention_window_size}-epochs-{args.num_epochs}"
+    elif args.model == "roberta":
+        output_dir = f"{use_global}roberta-base-text-classification-imdb-{args.optimizer}-epochs-{args.num_epochs}"
     else:
         raise ValueError(f"Unknown model: {args.model}")
 
@@ -86,16 +95,20 @@ def main(args):
         shutil.rmtree(data_dir)
 
     dataset = load_dataset("imdb", cache_dir=data_dir)
-    train_dataset = dataset['train']
-    test_dataset = dataset['test']
+    train_dataset = dataset["train"]
+    test_dataset = dataset["test"]
 
     def stratified_split(dataset, n_samples):
         df = dataset.to_pandas()
-        df_0 = df[df['label'] == 0]
-        df_1 = df[df['label'] == 1]
+        df_0 = df[df["label"] == 0]
+        df_1 = df[df["label"] == 1]
 
-        sample_0, _ = train_test_split(df_0, train_size=n_samples//2, stratify=df_0['label'], random_state=42)
-        sample_1, _ = train_test_split(df_1, train_size=n_samples//2, stratify=df_1['label'], random_state=42)
+        sample_0, _ = train_test_split(
+            df_0, train_size=n_samples // 2, stratify=df_0["label"], random_state=42
+        )
+        sample_1, _ = train_test_split(
+            df_1, train_size=n_samples // 2, stratify=df_1["label"], random_state=42
+        )
 
         sample = pd.concat([sample_0, sample_1])
         remaining = df.drop(sample.index)
@@ -109,12 +122,36 @@ def main(args):
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-    def preprocess_function(examples):
+    def preprocess_function_with_global(examples):
         return tokenizer(examples["text"], truncation=True, max_length=MAX_LENGTH)
 
-    tokenized_train = new_train.map(preprocess_function, batched=True, remove_columns=['text'])
-    tokenized_test = new_test.map(preprocess_function, batched=True, remove_columns=['text'])
-    tokenized_eval = validation_dataset.map(preprocess_function, batched=True, remove_columns=['text'])
+    def preprocess_function_without_global(examples):
+        inputs = tokenizer(examples["text"], truncation=True, max_length=MAX_LENGTH)
+        inputs["global_attention_mask"] = [
+            [0] * MAX_LENGTH for _ in range(len(inputs["input_ids"]))
+        ]
+        return inputs
+
+    if args.use_global == "true":
+        tokenized_train = new_train.map(
+            preprocess_function_with_global, batched=True, remove_columns=["text"]
+        )
+        tokenized_test = new_test.map(
+            preprocess_function_with_global, batched=True, remove_columns=["text"]
+        )
+        tokenized_eval = validation_dataset.map(
+            preprocess_function_with_global, batched=True, remove_columns=["text"]
+        )
+    else:
+        tokenized_train = new_train.map(
+            preprocess_function_without_global, batched=True, remove_columns=["text"]
+        )
+        tokenized_test = new_test.map(
+            preprocess_function_without_global, batched=True, remove_columns=["text"]
+        )
+        tokenized_eval = validation_dataset.map(
+            preprocess_function_without_global, batched=True, remove_columns=["text"]
+        )
 
     accuracy = evaluate.load("accuracy")
 
@@ -130,7 +167,7 @@ def main(args):
     label2id = {v: k for k, v in id2label.items()}
 
     cfg = AutoConfig.from_pretrained(model_name)
-    if args.model == 'longformer':
+    if args.model == "longformer":
         cfg.attention_window = args.attention_window_size
         cfg.max_position_embeddings = MAX_LENGTH + 2
     cfg.num_labels = 2
@@ -141,9 +178,13 @@ def main(args):
 
     model = AutoModelForSequenceClassification.from_config(cfg)
 
+    if args.model == "longformer" and args.use_global == "false":
+        for i, layer in enumerate(model.longformer.encoder.layer):
+            layer.attention.self = ModifiedSelfAttention(cfg, layer_id=i)
+
     training_args = TrainingArguments(
         output_dir=output_dir,
-        evaluation_strategy='epoch',
+        evaluation_strategy="epoch",
         save_strategy="epoch",
         learning_rate=2e-5,
         per_device_train_batch_size=BATCH_SIZE,
@@ -215,7 +256,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model_name", type=str, default="allenai/longformer-base-4096"
     )
-    parser.add_argument("--model", type=str, default='longformer')
+    parser.add_argument("--model", type=str, default="longformer")
+    parser.add_argument("--use_global", type=str, default="true")
     parser.add_argument("--num_epochs", type=int, default=7)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=2e-5)

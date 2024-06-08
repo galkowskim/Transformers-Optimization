@@ -21,6 +21,8 @@ from transformers import (
     logging,
 )
 
+from custom_attention import ModifiedSelfAttention
+
 logging.set_verbosity_error()
 
 
@@ -69,10 +71,17 @@ class CustomCallback(TrainerCallback):
 
 
 def main(args):
-    if args.model == 'longformer':
-        output_dir = f"longformer-base-512-text-classification-emotion-{args.optimizer}-att_win_size_{args.attention_window_size}"
-    elif args.model == 'roberta':
-        output_dir = f"roberta-base-text-classification-emotion-{args.optimizer}-epochs-{args.num_epochs}-cpu"
+    if args.use_global == "true":
+        use_global = ""
+    elif args.use_global == "false":
+        use_global = "no_global_attention_"
+    else:
+        raise ValueError("use_global should be either true or false")
+
+    if args.model == "longformer":
+        output_dir = f"{use_global}longformer-base-512-text-classification-emotion-{args.optimizer}-att_win_size_{args.attention_window_size}"
+    elif args.model == "roberta":
+        output_dir = f"{use_global}roberta-base-text-classification-emotion-{args.optimizer}-epochs-{args.num_epochs}-cpu"
     else:
         raise ValueError("Model not supported")
 
@@ -85,21 +94,27 @@ def main(args):
         shutil.rmtree(data_dir)
 
     def filter_labels(example):
-        return example['label'] in [0, 1]
+        return example["label"] in [0, 1]
 
     emotion = load_dataset("dair-ai/emotion", cache_dir=data_dir)
-    train = emotion['train'].filter(filter_labels)
-    valid = emotion['validation'].filter(filter_labels)
-    test = emotion['test'].filter(filter_labels)
+    train = emotion["train"].filter(filter_labels)
+    valid = emotion["validation"].filter(filter_labels)
+    test = emotion["test"].filter(filter_labels)
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     def preprocess_function(examples):
         return tokenizer(examples["text"], truncation=True, max_length=MAX_LENGTH)
 
-    tokenized_train = train.map(preprocess_function, batched=True, remove_columns=['text'])
-    tokenized_valid = valid.map(preprocess_function, batched=True, remove_columns=['text'])
-    tokenized_test = test.map(preprocess_function, batched=True, remove_columns=['text'])
+    tokenized_train = train.map(
+        preprocess_function, batched=True, remove_columns=["text"]
+    )
+    tokenized_valid = valid.map(
+        preprocess_function, batched=True, remove_columns=["text"]
+    )
+    tokenized_test = test.map(
+        preprocess_function, batched=True, remove_columns=["text"]
+    )
 
     accuracy = evaluate.load("accuracy")
 
@@ -115,7 +130,7 @@ def main(args):
     label2id = {v: k for k, v in id2label.items()}
 
     cfg = AutoConfig.from_pretrained(model_name)
-    if args.model == 'longformer':
+    if args.model == "longformer":
         cfg.attention_window = args.attention_window_size
         cfg.max_position_embeddings = MAX_LENGTH + 2
     cfg.num_labels = 2
@@ -126,9 +141,13 @@ def main(args):
 
     model = AutoModelForSequenceClassification.from_config(cfg)
 
+    if args.model == "longformer" and args.use_global == "false":
+        for i, layer in enumerate(model.longformer.encoder.layer):
+            layer.attention.self = ModifiedSelfAttention(cfg, layer_id=i)
+
     training_args = TrainingArguments(
         output_dir=output_dir,
-        evaluation_strategy='epoch',
+        evaluation_strategy="epoch",
         save_strategy="epoch",
         learning_rate=2e-5,
         per_device_train_batch_size=BATCH_SIZE,
@@ -200,7 +219,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model_name", type=str, default="allenai/longformer-base-4096"
     )
-    parser.add_argument("--model", type=str, default='longformer')
+    parser.add_argument("--model", type=str, default="longformer")
+    parser.add_argument("--use_global", type=str, default="true")
     parser.add_argument("--num_epochs", type=int, default=7)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=2e-5)
