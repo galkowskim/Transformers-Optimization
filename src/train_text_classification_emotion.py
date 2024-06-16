@@ -9,7 +9,6 @@ import evaluate
 import numpy as np
 import pandas as pd
 import torch
-from custom_attention import ModifiedSelfAttention
 from datasets import load_dataset
 from pynvml import nvmlDeviceGetHandleByIndex, nvmlDeviceGetMemoryInfo, nvmlInit
 from transformers import (
@@ -23,6 +22,8 @@ from transformers import (
     get_scheduler,
     logging,
 )
+
+from custom_attention import ModifiedSelfAttention
 
 logging.set_verbosity_error()
 
