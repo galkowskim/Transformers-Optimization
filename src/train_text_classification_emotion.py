@@ -1,7 +1,7 @@
 import json
+import math
 import os
 import shutil
-import math
 from argparse import ArgumentParser
 from copy import deepcopy
 
@@ -19,8 +19,8 @@ from transformers import (
     Trainer,
     TrainerCallback,
     TrainingArguments,
-    logging,
     get_scheduler,
+    logging,
 )
 
 from custom_attention import ModifiedSelfAttention
@@ -37,7 +37,7 @@ def print_gpu_utilization():
     nvmlInit()
     handle = nvmlDeviceGetHandleByIndex(0)
     info = nvmlDeviceGetMemoryInfo(handle)
-    print(f"GPU memory occupied: {info.used//1024**2} MB.")
+    print(f"GPU memory occupied: {info.used // 1024**2} MB.")
     return info.used // 1024**2
 
 
@@ -51,6 +51,7 @@ def print_summary(result):
         "samples/sec": result.metrics["train_samples_per_second"],
         "gpu_memory": MB,
     }
+
 
 def create_sgd_optimizer_and_scheduler(model: torch.nn.Module, num_training_steps: int):
     """
@@ -66,12 +67,13 @@ def create_sgd_optimizer_and_scheduler(model: torch.nn.Module, num_training_step
     optimizer = torch.optim.SGD(params, lr=0.1)
 
     lr_scheduler = get_scheduler(
-        'cosine',
+        "cosine",
         optimizer=optimizer,
         num_warmup_steps=0,
         num_training_steps=num_training_steps,
     )
     return optimizer, lr_scheduler
+
 
 class CustomCallback(TrainerCallback):
     def __init__(self, trainer) -> None:
@@ -162,8 +164,10 @@ def main(args):
         for i, layer in enumerate(model.longformer.encoder.layer):
             layer.attention.self = ModifiedSelfAttention(cfg, layer_id=i)
 
-    if args.optimizer == 'sgd':
-        optimizer, lr_scheduler = create_sgd_optimizer_and_scheduler(model, math.ceil(NUM_EPOCHS * 314)) # this 314 was calculated based on the DataLoader created in the Trainer (as in the source coude: https://github.com/huggingface/transformers/blob/main/src/transformers/trainer.py#L1954))
+    if args.optimizer == "sgd":
+        optimizer, lr_scheduler = create_sgd_optimizer_and_scheduler(
+            model, math.ceil(NUM_EPOCHS * 314)
+        )  # this 314 was calculated based on the DataLoader created in the Trainer (as in the source coude: https://github.com/huggingface/transformers/blob/main/src/transformers/trainer.py#L1954))
 
         training_args = TrainingArguments(
             output_dir=output_dir,
