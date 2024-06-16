@@ -64,7 +64,7 @@ def collect_results(folder_path):
     data_scaled = []
     for dataset in datasets:
         dataset_data = data[data["Dataset"] == dataset]
-        dataset_data["GPU Memory Usage"] = MinMaxScaler().fit_transform(
+        dataset_data["GPU Memory Usage Scalled"] = MinMaxScaler().fit_transform(
             dataset_data["GPU Memory Usage"].values.reshape(-1, 1)
         )
         dataset_data["Test Accuracy"] = MinMaxScaler().fit_transform(
@@ -75,7 +75,7 @@ def collect_results(folder_path):
     data_scaled = pd.concat(data_scaled, axis=0)
 
     for alpha, betha in hyperparameters:
-        cost_function = alpha * data_scaled["GPU Memory Usage"] + betha * (
+        cost_function = alpha * data_scaled["GPU Memory Usage Scalled"] + betha * (
             data_scaled["Test Error"]
         )
         data_scaled[f"Cost Function ({alpha}, {betha})"] = cost_function
