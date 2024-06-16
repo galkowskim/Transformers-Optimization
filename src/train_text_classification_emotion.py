@@ -9,6 +9,7 @@ import evaluate
 import numpy as np
 import pandas as pd
 import torch
+from custom_attention import ModifiedSelfAttention
 from datasets import load_dataset
 from pynvml import nvmlDeviceGetHandleByIndex, nvmlDeviceGetMemoryInfo, nvmlInit
 from transformers import (
@@ -23,8 +24,6 @@ from transformers import (
     logging,
 )
 
-from custom_attention import ModifiedSelfAttention
-
 logging.set_verbosity_error()
 
 
@@ -37,7 +36,7 @@ def print_gpu_utilization():
     nvmlInit()
     handle = nvmlDeviceGetHandleByIndex(0)
     info = nvmlDeviceGetMemoryInfo(handle)
-    print(f"GPU memory occupied: {info.used//1024**2} MB.")
+    print(f"GPU memory occupied: {info.used // 1024**2} MB.")
     return info.used // 1024**2
 
 
