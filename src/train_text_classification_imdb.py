@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+import math
 from argparse import ArgumentParser
 from copy import deepcopy
 
@@ -20,6 +21,7 @@ from transformers import (
     TrainerCallback,
     TrainingArguments,
     logging,
+    get_scheduler,
 )
 
 from custom_attention import ModifiedSelfAttention
@@ -30,11 +32,6 @@ logging.set_verbosity_error()
 torch.cuda.empty_cache()
 
 MAX_LENGTH = 512
-
-OPTIMIZERS = {
-    "adamw": "adamw_torch",
-    "adafactor": "adafactor",
-}
 
 
 def print_gpu_utilization():
@@ -56,6 +53,25 @@ def print_summary(result):
         "gpu_memory": MB,
     }
 
+def create_sgd_optimizer_and_scheduler(model: torch.nn.Module, num_training_steps: int):
+    """
+    Setup the optimizer and the learning rate scheduler.
+
+    We provide a reasonable default that works well. If you want to use something else, you can pass a tuple in the
+    Trainer's init through `optimizers`, or subclass and override this method (or `create_optimizer` and/or
+    `create_scheduler`) in a subclass.
+    """
+
+    params = [p for p in model.parameters() if p.requires_grad]
+    optimizer = torch.optim.SGD(params, lr=0.003, momentum=.9)
+
+    lr_scheduler = get_scheduler(
+        'cosine_with_restarts',
+        optimizer=optimizer,
+        num_warmup_steps=0,
+        num_training_steps=num_training_steps,
+    )
+    return optimizer, lr_scheduler
 
 class CustomCallback(TrainerCallback):
     def __init__(self, trainer) -> None:
@@ -80,7 +96,7 @@ def main(args):
         raise ValueError("use_global should be either true or false")
 
     if args.model == "longformer":
-        output_dir = f"{use_global}longformer-base-512-text-classification-imdb-{args.optimizer}-att_win_size_{args.attention_window_size}-epochs-{args.num_epochs}"
+        output_dir = f"{use_global}longformer-base-512-text-classification-imdb-{args.optimizer}-att_win_size_{args.attention_window_size}"
     elif args.model == "roberta":
         output_dir = f"{use_global}roberta-base-text-classification-imdb-{args.optimizer}-epochs-{args.num_epochs}"
     else:
@@ -122,36 +138,18 @@ def main(args):
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-    def preprocess_function_with_global(examples):
+    def preprocess_function(examples):
         return tokenizer(examples["text"], truncation=True, max_length=MAX_LENGTH)
 
-    def preprocess_function_without_global(examples):
-        inputs = tokenizer(examples["text"], truncation=True, max_length=MAX_LENGTH)
-        inputs["global_attention_mask"] = [
-            [0] * MAX_LENGTH for _ in range(len(inputs["input_ids"]))
-        ]
-        return inputs
-
-    if args.use_global == "true":
-        tokenized_train = new_train.map(
-            preprocess_function_with_global, batched=True, remove_columns=["text"]
-        )
-        tokenized_test = new_test.map(
-            preprocess_function_with_global, batched=True, remove_columns=["text"]
-        )
-        tokenized_eval = validation_dataset.map(
-            preprocess_function_with_global, batched=True, remove_columns=["text"]
-        )
-    else:
-        tokenized_train = new_train.map(
-            preprocess_function_without_global, batched=True, remove_columns=["text"]
-        )
-        tokenized_test = new_test.map(
-            preprocess_function_without_global, batched=True, remove_columns=["text"]
-        )
-        tokenized_eval = validation_dataset.map(
-            preprocess_function_without_global, batched=True, remove_columns=["text"]
-        )
+    tokenized_train = new_train.map(
+        preprocess_function, batched=True, remove_columns=["text"]
+    )
+    tokenized_test = new_test.map(
+        preprocess_function, batched=True, remove_columns=["text"]
+    )
+    tokenized_eval = validation_dataset.map(
+        preprocess_function, batched=True, remove_columns=["text"]
+    )
 
     accuracy = evaluate.load("accuracy")
 
@@ -182,30 +180,56 @@ def main(args):
         for i, layer in enumerate(model.longformer.encoder.layer):
             layer.attention.self = ModifiedSelfAttention(cfg, layer_id=i)
 
-    training_args = TrainingArguments(
-        output_dir=output_dir,
-        evaluation_strategy="epoch",
-        save_strategy="epoch",
-        learning_rate=2e-5,
-        per_device_train_batch_size=BATCH_SIZE,
-        per_device_eval_batch_size=BATCH_SIZE,
-        num_train_epochs=NUM_EPOCHS,
-        logging_steps=10,
-        weight_decay=0.01,
-        fp16=True,
-        optim=OPTIMIZERS[args.optimizer],
-        push_to_hub=True,
-    )
+    if args.optimizer == 'sgd':
+        optimizer, lr_scheduler = create_sgd_optimizer_and_scheduler(model, math.ceil(NUM_EPOCHS * 547)) # this 314 was calculated based on the DataLoader created in the Trainer (as in the source coude: https://github.com/huggingface/transformers/blob/main/src/transformers/trainer.py#L1954))
 
-    trainer = Trainer(
-        model=model,
-        args=training_args,
-        train_dataset=tokenized_train,
-        eval_dataset=tokenized_eval,
-        tokenizer=tokenizer,
-        data_collator=data_collator,
-        compute_metrics=compute_metrics,
-    )
+        training_args = TrainingArguments(
+            output_dir=output_dir,
+            evaluation_strategy="epoch",
+            save_strategy="epoch",
+            per_device_train_batch_size=BATCH_SIZE,
+            per_device_eval_batch_size=BATCH_SIZE,
+            num_train_epochs=NUM_EPOCHS,
+            logging_steps=10,
+            fp16=True,
+            push_to_hub=True,
+        )
+        trainer = Trainer(
+            model=model,
+            args=training_args,
+            train_dataset=tokenized_train,
+            eval_dataset=tokenized_eval,
+            tokenizer=tokenizer,
+            data_collator=data_collator,
+            compute_metrics=compute_metrics,
+            optimizers=(optimizer, lr_scheduler),
+        )
+    else:
+        weight_decay = 0.01 if args.optimizer == "adamw" else 0.0
+
+        training_args = TrainingArguments(
+            output_dir=output_dir,
+            evaluation_strategy="epoch",
+            save_strategy="epoch",
+            learning_rate=2e-5,
+            per_device_train_batch_size=BATCH_SIZE,
+            per_device_eval_batch_size=BATCH_SIZE,
+            num_train_epochs=NUM_EPOCHS,
+            logging_steps=10,
+            weight_decay=weight_decay,
+            fp16=True,
+            push_to_hub=True,
+        )
+
+        trainer = Trainer(
+            model=model,
+            args=training_args,
+            train_dataset=tokenized_train,
+            eval_dataset=tokenized_eval,
+            tokenizer=tokenizer,
+            data_collator=data_collator,
+            compute_metrics=compute_metrics,
+        )
 
     trainer.add_callback(CustomCallback(trainer))
 
